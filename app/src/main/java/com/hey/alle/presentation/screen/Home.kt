@@ -5,14 +5,15 @@ import android.Manifest.permission.READ_EXTERNAL_STORAGE
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +28,9 @@ import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +52,7 @@ import com.airbnb.lottie.compose.rememberLottieComposition
 import com.hey.alle.R
 import com.hey.alle.domain.model.ScreenshotListState
 import com.hey.alle.presentation.viewmodel.HomeViewModel
+import kotlin.math.abs
 
 
 @Preview
@@ -121,7 +125,7 @@ private fun HomeRootView(
 ) {
     val lazyState = rememberLazyListState()
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedItemIndex by remember { mutableStateOf(0) }
+    var selectedItemIndex by remember { mutableIntStateOf(0) }
 
     Box(
         modifier = Modifier
@@ -139,42 +143,68 @@ private fun HomeRootView(
             )
         }
 
-        LazyRow(
-            state = lazyState,
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(0.dp, 20.dp)
-                .align(Alignment.BottomCenter)
-        ){
-            itemsIndexed(state.list){index, item ->
-                val isSelected = index == selectedItemIndex
-                val scale = if (isSelected) 1.3f else 1f
+       BoxWithConstraints(
+           modifier = Modifier
+           .fillMaxWidth()
+           .padding(0.dp, 20.dp)
+           .align(Alignment.BottomCenter)
+       ) {
+           val halfRowWidth = constraints.maxWidth / 2
+           LazyRow(
+               state = lazyState,
+               verticalAlignment = Alignment.CenterVertically,
+               horizontalArrangement = Arrangement.spacedBy(8.dp),
+               contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+           ){
+               itemsIndexed(state.list){index, item ->
 
-                // This is check if the first item is selected will show that item on the screen
-                if(isSelected){
-                    selectedUri = item
-                }
+                   // This will calculate the center position of the item
+                   val centerPosition by remember { // caching position for prevent recomposition
+                       derivedStateOf {
+                           val visibleinfo = lazyState.layoutInfo.visibleItemsInfo
+                           if (visibleinfo.isEmpty()) -1
+                           else {
+                               val offset = (visibleinfo.last().index - visibleinfo.first().index) / 2
+                               visibleinfo.first().index + offset
+                           }
+                       }
+                   }
 
-                Child(
-                    item,
-                    modifier = Modifier
-                        .size(40.dp, 40.dp)
-                        .clickable {
-                            // On clicking the item update the state for current item and index
-                            selectedUri = item
-                            selectedItemIndex = index
-                        }
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                    imageModifier = Modifier.requiredWidth(40.dp)
-                )
-            }
-        }
+                   // This will scale the item while scrolling the item
+                   val scale by remember {
+                       derivedStateOf {
+                           val currentItemInfo = lazyState.layoutInfo.visibleItemsInfo.firstOrNull {
+                               it.index == index
+                           } ?: return@derivedStateOf 0.8f
+                           val itemHalfSize = currentItemInfo.size / 2
+                           1f - minOf(1f, abs(currentItemInfo.offset + itemHalfSize - halfRowWidth).toFloat() / halfRowWidth) * 0.8f
+                       }
+                   }
+
+
+                   // This will check whether the center item position is equal to index
+                   // If yes it will pick the same uri from the list and update to the state
+                   // which will eventually display to the parent big image
+                   if(index == centerPosition){
+                       selectedUri = state.list.get(index)
+                   }
+
+
+                   // This is the child item view
+                   Child(
+                       item,
+                       modifier = Modifier
+                           .size(60.dp, 60.dp)
+                           .graphicsLayer {
+                               scaleX = scale
+                               scaleY = scale
+                               alpha = scale
+                           },
+                       imageModifier = Modifier.requiredWidth(60.dp)
+                   )
+               }
+           }
+       }
     }
 }
 
